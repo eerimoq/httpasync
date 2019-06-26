@@ -26,4 +26,7 @@ setuptools.setup(
     keywords=['http'],
     url='https://github.com/eerimoq/httpasync',
     packages=find_packages(exclude=['tests']),
+    install_requires=[
+        'httptools'
+    ],
     test_suite="tests")
