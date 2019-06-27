@@ -17,7 +17,7 @@ class Hello:
 class File:
 
     def __init__(self):
-        self._data = b'Hello, world!'
+        self._data = b'A file!'
 
     async def get(self, _request, response):
         response.data = self._data
@@ -28,10 +28,13 @@ class File:
 
 
 async def main():
-    server = httpasync.Server('localhost', 8080)
-    server.add_route('/', Index())
-    server.add_route('/hello/{name}', Hello())
-    server.add_route('/file', File())
+    server = httpasync.Server('localhost',
+                              8080,
+                              [
+                                  ('/', Index()),
+                                  ('/hello/{name}', Hello()),
+                                  ('/file', File())
+                              ])
 
     await server.serve_forever()
 

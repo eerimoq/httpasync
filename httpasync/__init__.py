@@ -1,3 +1,4 @@
+import re
 import logging
 import asyncio
 import httptools
@@ -8,59 +9,51 @@ from .version import __version__
 LOGGER = logging.getLogger(__name__)
 
 
+class Request:
+
+    def __init__(self):
+        pass
+
+
+class Response:
+
+    def __init__(self):
+        self.status = 200
+        self.data = b''
+
+    @property
+    def text(self):
+        return None
+
+    @text.setter
+    def text(self, text):
+        self.data = text.encode('utf-8')
+
 
 class Protocol:
 
-    def on_message_begin(self):
-        print('on_message_begin')
+    def __init__(self):
+        self.url = None
+        self.message_complete = False
 
     def on_url(self, url):
-        print(f'on_url: {url}')
-
-    def on_header(self, name, value):
-        print(f'on_header: {name}: {value}')
-
-    def on_headers_complete(self):
-        print('on_headers_complete')
-
-    def on_body(self, body):
-        print(f'on_body: {body}')
+        self.url = url.decode('utf-8')
 
     def on_message_complete(self):
-        print('on_message_complete')
-
-    def on_chunk_header(self):
-        print('on_chunk_header')
-
-    def on_chunk_complete(self):
-        print('on_chunk_header')
-
-    def on_status(self, status):
-        print(f'on_status: {status}')
-
-
-parser = httptools.HttpRequestParser(Protocol())
-data = ('GET / HTTP/1.1\r\n'
-        'Host: www.example.com\r\n'
-        'User-Agent: curl/7.47.0\r\n'
-        'Accept: */*\r\n'
-        '\r\n').encode('ascii')
-
-parser.feed_data(data[:2])
-parser.feed_data(data[2:])
-print(parser.get_http_version())
-print(parser.get_method())
+        self.message_complete = True
 
 
 class Server:
 
-    def __init__(self, host, port):
+    def __init__(self, host, port, routes):
         self._host = host
         self._port = port
-        self._routes = {}
+        self._routes = []
 
-    def add_route(self, path, handler):
-        self._routes[path] = handler
+        for route, handler in routes:
+            pattern = re.sub(r'\{([^\}]+)\}', r'(?P<\1>[^/]+)', route)
+            re_route = re.compile(f'^{pattern}$')
+            self._routes.append((re_route, handler))
 
     async def serve_forever(self):
         """Setup a listener socket and forever serve clients. This coroutine
@@ -68,7 +61,7 @@ class Server:
 
         """
 
-        listener = await asyncio.start_server(self.serve_client,
+        listener = await asyncio.start_server(self._serve_client,
                                               self._host,
                                               self._port)
 
@@ -78,6 +71,44 @@ class Server:
         async with listener:
             await listener.serve_forever()
 
-    async def serve_client(self, reader, writer):
-        print('Client connected. Closing...')
+    def _find_handler(self, url):
+        for re_route, handler in self._routes:
+            mo = re_route.match(url)
+
+            if mo:
+                return handler, mo.groups()
+
+        return None, None
+
+    async def _serve_client(self, reader, writer):
+        protocol = Protocol()
+        parser = httptools.HttpRequestParser(protocol)
+
+        while not protocol.message_complete:
+            parser.feed_data(await reader.readline())
+
+        handler, params = self._find_handler(protocol.url)
+        response = Response()
+
+        if handler is not None:
+            method = parser.get_method()
+            request = Request()
+
+            if method == b'GET':
+                await handler.get(request, response, *params)
+            elif method == b'POST':
+                await handler.post(request, response, *params)
+            else:
+                response.status = 405
+        else:
+            response.status = 404
+
+        if response.status == 200:
+            writer.write(('HTTP/1.0 200 OK\r\n'
+                          f'Server: HTTPAsync/{__version__}\r\n'
+                          'Date: Thu, 27 Jun 2019 05:56:10 GMT\r\n'
+                          'Content-type: text/plain; charset=utf-8\r\n'
+                          f'Content-Length: {len(response.data)}\r\n'
+                          '\r\n').encode('utf-8') + response.data)
+
         writer.close()
