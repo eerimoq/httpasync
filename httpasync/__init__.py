@@ -23,7 +23,7 @@ class Response:
 
     @property
     def text(self):
-        return None
+        return self.data.decode('utf-8')
 
     @text.setter
     def text(self, text):
@@ -71,7 +71,7 @@ class Server:
         async with listener:
             await listener.serve_forever()
 
-    def _find_handler(self, url):
+    def _unpack_url(self, url):
         for re_route, handler in self._routes:
             mo = re_route.match(url)
 
@@ -81,13 +81,17 @@ class Server:
         return None, None
 
     async def _serve_client(self, reader, writer):
+        """Serve a client.
+
+        """
+
         protocol = Protocol()
         parser = httptools.HttpRequestParser(protocol)
 
         while not protocol.message_complete:
             parser.feed_data(await reader.readline())
 
-        handler, params = self._find_handler(protocol.url)
+        handler, params = self._unpack_url(protocol.url)
         response = Response()
 
         if handler is not None:
